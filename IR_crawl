@@ -1,0 +1,212 @@
+# Import Packages
+import requests
+import re
+import numpy as np
+import pandas as pd
+from bs4 import BeautifulSoup, SoupStrainer
+import time
+import datetime as dt
+
+
+# Simple function getting respective articles
+
+def apple_articles():
+    Date = []
+    Category = []
+    Headline = []
+    Url = []
+
+    url_main = "https://www.apple.com"
+    url_idx = url_main + "/newsroom/archive/company-news/"
+
+
+    urls = ["https://www.apple.com/newsroom/archive/company-news/?page=" + str(x) for x in range(2,16)]
+    urls.insert(0,url_idx)
+
+
+    for url in urls:
+        result = requests.get(url)
+        soup_apple = BeautifulSoup(result.text, "html.parser")
+
+        for x in soup_apple.find_all("p", class_ = "item__date"):
+            Date.append(dt.datetime.strptime(x.text, "%B %d, %Y"))
+        for x in soup_apple.find_all("p", class_ = re.compile("item__category \w*")):
+            Category.append(x.text)
+        for x in soup_apple.find_all("h3", class_ = "item__headline"):
+            Headline.append(x.text.strip())
+        for x in soup_apple.find_all("a", class_ = "result__item row-anchor"):
+            Url.append(url_main + x.get("href"))
+
+    df = pd.DataFrame({"Date": Date, "Category": Category, "Headline": Headline, "URL": Url})
+    return df
+
+
+
+
+# function where number of artciles to be downloaded can be specified
+
+def article_download(n):
+    # find out the number of pages I need to look at
+    if n % 10 == 0:
+        if n == 0:
+            pages = 15
+            n = 143
+        else:
+            pages = n // 10
+    else:
+        pages = n // 10 
+        pages = pages + 1
+
+  
+    Date = []
+    Category = []
+    Headline = []
+    Url = []
+
+    url_main = "https://www.apple.com"
+    url_idx = url_main + "/newsroom/archive/company-news/"
+
+
+    urls = ["https://www.apple.com/newsroom/archive/company-news/?page=" + str(x) for x in range(2,pages + 1)]
+    urls.insert(0,url_idx)
+
+
+    for url in urls:
+        result = requests.get(url)
+        soup_apple = BeautifulSoup(result.text, "html.parser")
+        for x in soup_apple.find_all("p", class_ = "item__date"):
+            if len(Date) == n:
+                break
+            Date.append(x.text)
+        for x in soup_apple.find_all("p", class_ = re.compile("item__category \w*")):
+            if len(Category) == n:
+                break
+            Category.append(x.text)
+        for x in soup_apple.find_all("h3", class_ = "item__headline"):
+            if len(Headline) == n:
+                break
+            Headline.append(x.text.strip())
+        for x in soup_apple.find_all("a", class_ = "result__item row-anchor"):
+            if len(Url) == n:
+                break
+            Url.append(url_main + x.get("href"))
+        i = 1
+        df = pd.DataFrame({"Date": Date, "Category": Category, "Headline": Headline, "URL": Url})   
+        for x in df["URL"]:
+            article = requests.get(x)
+            article_soup = BeautifulSoup(article.text, "html.parser")
+            paragraph = [x.text for x in article_soup.find_all("div", class_ = re.compile(r"pagebody-copy"))]
+            text_article = open(f"apple_article{i}.txt",'w')
+            for p in paragraph:
+                text_article.write(p + "\n")
+            text_article.close()
+            i = i + 1
+            time.sleep(2)
+    return df
+
+
+
+
+
+
+# Function that takes a DF and downloads articels specified by Date & Category
+
+def get_articles(DataFrame, Categories, Time , Quaterly):
+    
+    t_start = dt.datetime.strptime(Time[0], "%d.%m.%Y")
+    t_end = dt.datetime.strptime(Time[1], "%d.%m.%Y")
+    post_df = pd.DataFrame({"Date": [], "Category": [], "Headline": [], "URL": []})
+    dl_check = []
+    i = 1
+    
+    if Quaterly == True:
+        for x in DataFrame["Headline"]:
+            if "Quarter" in x.split():  
+                post_df = post_df.append(DataFrame[DataFrame["Headline"] == x]).drop_duplicates(keep='first')
+        post_df = post_df[post_df["Date"] > t_start]
+        post_df = post_df[post_df["Date"] < t_end]
+        for x in post_df["URL"]:
+            article = requests.get(x)
+            article_soup = BeautifulSoup(article.text, "html.parser")
+            paragraph = [x.text for x in article_soup.find_all("div", class_ = re.compile(r"pagebody-copy"))]
+            text_article = open(f"apple_article{i}.txt",'w')
+            for p in paragraph:
+                text_article.write(p + "\n")
+            text_article.close()
+            i = i + 1
+            time.sleep(1)
+        for x in DataFrame["URL"]:
+            if x in list(post_df["URL"]):
+                dl_check.append("Downloaded")
+            else:
+                dl_check.append("False")
+        DataFrame["Download_Check"] = dl_check        
+        return post_df
+    
+    for c in Categories: 
+        post_df = post_df.append(DataFrame[DataFrame["Category"] == c], ignore_index=True)
+    #post_df = post_df.set_index("Date")
+    post_df = post_df[post_df["Date"] > t_start]
+    post_df = post_df[post_df["Date"] < t_end]
+    for x in post_df["URL"]:
+        article = requests.get(x)
+        article_soup = BeautifulSoup(article.text, "html.parser")
+        paragraph = [x.text for x in article_soup.find_all("div", class_ = re.compile(r"pagebody-copy"))]
+        text_article = open(f"apple_article{i}.txt",'w')
+        for p in paragraph:
+            text_article.write(p + "\n")
+        text_article.close()
+        i = i + 1
+        time.sleep(1)
+    for x in DataFrame["URL"]:
+        if x in list(post_df["URL"]):
+           dl_check.append("Downloaded")
+        else:
+           dl_check.append("False")  
+    DataFrame["Download_Check"] = dl_check
+    return post_df
+
+
+# Example 
+# Download all Press releases
+df_pr = get_articles(df_articles, ["PRESS RELEASE"], ["01.01.2015", "31.12.2022"], False)
+
+
+# based on downloaded articles search for keywords within those articles & determine how often each keyword appears
+
+counter = 1
+dlr_count = []
+dlr_str = []
+icount = []
+i_str = []
+
+
+
+for t in df_articles["Download_Check"]:
+    if t == "Downloaded":
+        with open(f"apple_article{counter}.txt") as f:
+            contents = f.read()
+            dollars = re.findall(re.compile(r"\$\d*\.?\d?\d?"), contents)
+            dlr_count.append(len(dollars))
+            dlr_str.append(" ".join(dollars))
+            iWords = re.findall(re.compile(r"i[A-Z][a-z]*|Mac|Apple TV"), contents)
+            icount.append(len(iWords))
+            i_str.append(",".join(iWords))
+            counter = counter + 1
+    else:
+        dlr_count.append("-")
+        dlr_str.append("-")
+        icount.append("-")
+        i_str.append("-")
+
+
+df_articles["$_Count"] = dlr_count
+df_articles["$_Str"] = dlr_str
+df_articles["iWord_Count"] = icount
+df_articles["iWord_Str"] = i_str
+
+df_articles
+
+
+
+
